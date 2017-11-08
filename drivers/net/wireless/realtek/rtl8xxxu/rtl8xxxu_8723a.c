@@ -368,6 +368,7 @@ exit:
 struct rtl8xxxu_fileops rtl8723au_fops = {
 	.parse_efuse = rtl8723au_parse_efuse,
 	.load_firmware = rtl8723au_load_firmware,
+	.download_firmware = rtl8xxxu_download_firmware,
 	.power_on = rtl8723au_power_on,
 	.power_off = rtl8xxxu_power_off,
 	.reset_8051 = rtl8xxxu_reset_8051,

@@ -1637,6 +1637,7 @@ static void rtl8192e_enable_rf(struct rtl8xxxu_priv *priv)
 struct rtl8xxxu_fileops rtl8192eu_fops = {
 	.parse_efuse = rtl8192eu_parse_efuse,
 	.load_firmware = rtl8192eu_load_firmware,
+	.download_firmware = rtl8xxxu_download_firmware,
 	.power_on = rtl8192eu_power_on,
 	.power_off = rtl8192eu_power_off,
 	.reset_8051 = rtl8xxxu_reset_8051,

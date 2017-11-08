@@ -13,6 +13,8 @@
  * Register definitions taken from original Realtek rtl8723au driver
  */
 
+#include <linux/usb.h>
+#include <net/mac80211.h>
 #include <asm/byteorder.h>
 
 #define RTL8XXXU_DEBUG_REG_WRITE	0x01
@@ -45,6 +47,7 @@
 #define TX_TOTAL_PAGE_NUM		0xf8
 #define TX_TOTAL_PAGE_NUM_8192E		0xf3
 #define TX_TOTAL_PAGE_NUM_8723B		0xf7
+#define TX_TOTAL_PAGE_NUM_8814A		0x07f8
 /* (HPQ + LPQ + NPQ + PUBQ) = TX_TOTAL_PAGE_NUM */
 #define TX_PAGE_NUM_PUBQ		0xe7
 #define TX_PAGE_NUM_HI_PQ		0x0c
@@ -61,8 +64,13 @@
 #define TX_PAGE_NUM_LO_PQ_8723B		0x02
 #define TX_PAGE_NUM_NORM_PQ_8723B	0x02
 
+#define TX_PAGE_NUM_BCNQ_8814A		0x08
+
 #define RTL_FW_PAGE_SIZE		4096
 #define RTL8XXXU_FIRMWARE_POLL_MAX	1000
+#define RTL8814A_FIRMWARE_CHKSUM_SIZE	8
+#define RTL8814A_TX_EXTBUF_SIZE		1536
+#define RTL8814A_TXDESC_SIZE		32
 
 #define RTL8723A_CHANNEL_GROUPS		3
 #define RTL8723A_MAX_RF_PATHS		2
@@ -872,6 +880,56 @@ struct rtl8192eu_efuse {
 	u8 res14[0xc3];
 };
 
+struct rtl8814au_efuse {
+	__le16 rtl_id;
+	u8 res0[0x0c];
+	u8 usb_mode;    /* 0x0e */
+	u8 res1[1];
+	struct rtl8192eu_efuse_tx_power tx_power_index_A;	/* 0x10 */
+	struct rtl8192eu_efuse_tx_power tx_power_index_B;	/* 0x3a */
+	u8 res2[0x54];
+	u8 channel_plan;		/* 0xb8 */
+	u8 xtal_k;
+	u8 thermal_meter;
+	u8 iqk_lck;
+	u8 pa_type;			/* 0xbc */
+	u8 lna_type_ab_2g;		/* 0xbd */
+	u8 lna_type_cd_2g;
+	u8 lna_type_ab_5g;		/* 0xbf */
+	u8 lna_type_cd_5g;
+	u8 rf_board_option;
+	u8 res3[1];
+	u8 rf_bt_setting;
+	u8 eeprom_version;
+	u8 eeprom_customer_id;
+	u8 rf_tx_bbswing_2g;
+	u8 rf_tx_bbswing_5g;
+	u8 res4[1];
+	u8 rf_antenna_option;
+	u8 rfe_option;
+	u8 country_code;		/* 0xcb */
+	u8 res5[3];
+
+	__le16 vid;			/* 0xd0 */
+	__le16 pid;			/* 0xd2 */
+	u8 res6[4];
+	u8 mac_addr[ETH_ALEN];		/* 0xd8 */
+	u8 res7[2];
+	u8 vendor_name[7];		/* 0xe0 */
+	u8 res8[2];
+	u8 device_name[0x0f];		/* 0xe9 */
+	u8 serial[0x07];		/* 0xf6 */
+	u8 res9[0x2e];
+	u8 lna_offset_ab_2g;		/* 0x120 */
+	u8 lna_offset_cd_2g;
+	u8 lna_offset_ab_5g_low;
+	u8 lna_offset_cd_5g_low;
+	u8 lna_offset_ab_5g_medium;
+	u8 lna_offset_cd_5g_medium;
+	u8 lna_offset_ab_5g_high;
+	u8 lna_offset_cd_5g_high;	/* 0x127 */
+};
+
 struct rtl8xxxu_reg8val {
 	u16 reg;
 	u8 val;
@@ -1193,6 +1251,13 @@ struct rtl8723bu_c2h {
 	};
 };
 
+struct rtl8814au_gpio_ctrl {
+	u8 in;
+	u8 out;
+	u8 direction;
+	u8 mod;
+};
+
 struct rtl8xxxu_fileops;
 
 struct rtl8xxxu_priv {
@@ -1290,6 +1355,7 @@ struct rtl8xxxu_priv {
 		struct rtl8723bu_efuse efuse8723bu;
 		struct rtl8192cu_efuse efuse8192;
 		struct rtl8192eu_efuse efuse8192eu;
+		struct rtl8814au_efuse efuse8814;
 	} efuse_wifi;
 	u32 adda_backup[RTL8XXXU_ADDA_REGS];
 	u32 mac_backup[RTL8XXXU_MAC_REGS];
@@ -1316,6 +1382,7 @@ struct rtl8xxxu_tx_urb {
 struct rtl8xxxu_fileops {
 	int (*parse_efuse) (struct rtl8xxxu_priv *priv);
 	int (*load_firmware) (struct rtl8xxxu_priv *priv);
+	int (*download_firmware) (struct rtl8xxxu_priv *priv);
 	int (*power_on) (struct rtl8xxxu_priv *priv);
 	void (*power_off) (struct rtl8xxxu_priv *priv);
 	void (*reset_8051) (struct rtl8xxxu_priv *priv);
@@ -1399,6 +1466,7 @@ int rtl8xxxu_init_phy_rf(struct rtl8xxxu_priv *priv,
 int rtl8xxxu_init_phy_regs(struct rtl8xxxu_priv *priv,
 			   struct rtl8xxxu_reg32val *array);
 int rtl8xxxu_load_firmware(struct rtl8xxxu_priv *priv, char *fw_name);
+int rtl8xxxu_download_firmware(struct rtl8xxxu_priv *priv);
 void rtl8xxxu_firmware_self_reset(struct rtl8xxxu_priv *priv);
 void rtl8xxxu_power_off(struct rtl8xxxu_priv *priv);
 void rtl8xxxu_reset_8051(struct rtl8xxxu_priv *priv);
@@ -1445,8 +1513,12 @@ void rtl8xxxu_fill_txdesc_v2(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 			     struct rtl8xxxu_txdesc32 *tx_desc32, bool sgi,
 			     bool short_preamble, bool ampdu_enable,
 			     u32 rts_rate);
+void rtl8xxxu_tx(struct ieee80211_hw *hw, struct ieee80211_tx_control *control,
+		 struct sk_buff *skb);
+
 
 extern struct rtl8xxxu_fileops rtl8192cu_fops;
 extern struct rtl8xxxu_fileops rtl8192eu_fops;
 extern struct rtl8xxxu_fileops rtl8723au_fops;
 extern struct rtl8xxxu_fileops rtl8723bu_fops;
+extern struct rtl8xxxu_fileops rtl8814au_fops;

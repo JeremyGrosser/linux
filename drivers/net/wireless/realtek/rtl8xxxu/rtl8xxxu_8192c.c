@@ -551,6 +551,7 @@ static int rtl8192cu_power_on(struct rtl8xxxu_priv *priv)
 struct rtl8xxxu_fileops rtl8192cu_fops = {
 	.parse_efuse = rtl8192cu_parse_efuse,
 	.load_firmware = rtl8192cu_load_firmware,
+	.download_firmware = rtl8xxxu_download_firmware,
 	.power_on = rtl8192cu_power_on,
 	.power_off = rtl8xxxu_power_off,
 	.reset_8051 = rtl8xxxu_reset_8051,

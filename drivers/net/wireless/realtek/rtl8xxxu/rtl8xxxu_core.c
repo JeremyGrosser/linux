@@ -60,6 +60,7 @@ MODULE_FIRMWARE("rtlwifi/rtl8192cufw_TMSC.bin");
 MODULE_FIRMWARE("rtlwifi/rtl8192eu_nic.bin");
 MODULE_FIRMWARE("rtlwifi/rtl8723bu_nic.bin");
 MODULE_FIRMWARE("rtlwifi/rtl8723bu_bt.bin");
+MODULE_FIRMWARE("rtlwifi/rtl8814aufw.bin");
 
 module_param_named(debug, rtl8xxxu_debug, int, 0600);
 MODULE_PARM_DESC(debug, "Set debug mask");
@@ -1681,6 +1682,12 @@ static int rtl8xxxu_identify_chip(struct rtl8xxxu_priv *priv)
 			priv->rtl_chip = RTL8192C;
 		}
 		priv->has_wifi = 1;
+	} else if ((val32 & 0xffffff00) == 0x004441100) {
+		sprintf(priv->chip_name, "8814AU");
+		priv->rf_paths = 3;
+		priv->rtl_chip = RTL8814A;
+		priv->usb_interrupts = 1;
+		priv->has_wifi = 1;
 	} else {
 		sprintf(priv->chip_name, "8188CU");
 		priv->rf_paths = 1;
@@ -1695,6 +1702,7 @@ static int rtl8xxxu_identify_chip(struct rtl8xxxu_priv *priv)
 	case RTL8188E:
 	case RTL8192E:
 	case RTL8723B:
+	case RTL8814A:
 		switch (val32 & SYS_CFG_VENDOR_EXT_MASK) {
 		case SYS_CFG_VENDOR_ID_TSMC:
 			sprintf(priv->chip_vendor, "TSMC");
@@ -1986,7 +1994,7 @@ exit:
 	return ret;
 }
 
-static int rtl8xxxu_download_firmware(struct rtl8xxxu_priv *priv)
+int rtl8xxxu_download_firmware(struct rtl8xxxu_priv *priv)
 {
 	int pages, remainder, i, ret;
 	u8 val8;
@@ -1994,9 +2002,9 @@ static int rtl8xxxu_download_firmware(struct rtl8xxxu_priv *priv)
 	u32 val32;
 	u8 *fwptr;
 
-	val8 = rtl8xxxu_read8(priv, REG_SYS_FUNC + 1);
-	val8 |= 4;
-	rtl8xxxu_write8(priv, REG_SYS_FUNC + 1, val8);
+	val16 = rtl8xxxu_read16(priv, REG_SYS_FUNC);
+	val16 |= SYS_FUNC_ELDR;
+	rtl8xxxu_write16(priv, REG_SYS_FUNC, val16);
 
 	/* 8051 enable */
 	val16 = rtl8xxxu_read16(priv, REG_SYS_FUNC);
@@ -2017,7 +2025,7 @@ static int rtl8xxxu_download_firmware(struct rtl8xxxu_priv *priv)
 
 	/* 8051 reset */
 	val32 = rtl8xxxu_read32(priv, REG_MCU_FW_DL);
-	val32 &= ~BIT(19);
+	val32 &= ~MCU_FW_DL_ROM_DL_ENABLE;
 	rtl8xxxu_write32(priv, REG_MCU_FW_DL, val32);
 
 	/* Reset firmware download checksum */
@@ -2025,6 +2033,7 @@ static int rtl8xxxu_download_firmware(struct rtl8xxxu_priv *priv)
 	val8 |= MCU_FW_DL_CSUM_REPORT;
 	rtl8xxxu_write8(priv, REG_MCU_FW_DL, val8);
 
+	priv->fw_size -= sizeof(struct rtl8xxxu_firmware_header);
 	pages = priv->fw_size / RTL_FW_PAGE_SIZE;
 	remainder = priv->fw_size % RTL_FW_PAGE_SIZE;
 
@@ -2091,7 +2100,8 @@ int rtl8xxxu_load_firmware(struct rtl8xxxu_priv *priv, char *fw_name)
 		ret = -ENOMEM;
 		goto exit;
 	}
-	priv->fw_size = fw->size - sizeof(struct rtl8xxxu_firmware_header);
+
+	priv->fw_size = fw->size;
 
 	signature = le16_to_cpu(priv->fw_data->signature);
 	switch (signature & 0xfff0) {
@@ -2100,6 +2110,7 @@ int rtl8xxxu_load_firmware(struct rtl8xxxu_priv *priv, char *fw_name)
 	case 0x88c0:
 	case 0x5300:
 	case 0x2300:
+	case 0x8810:
 		break;
 	default:
 		ret = -EINVAL;
@@ -3654,12 +3665,13 @@ exit:
 
 void rtl8xxxu_disabled_to_emu(struct rtl8xxxu_priv *priv)
 {
+	u32 val32;
 	u8 val8;
 
 	/* Clear suspend enable and power down enable*/
-	val8 = rtl8xxxu_read8(priv, REG_APS_FSMCO + 1);
-	val8 &= ~(BIT(3) | BIT(7));
-	rtl8xxxu_write8(priv, REG_APS_FSMCO + 1, val8);
+	val32 = rtl8xxxu_read32(priv, REG_APS_FSMCO);
+	val32 &= ~(APS_FSMCO_HW_SUSPEND | APS_FSMCO_HW_POWERDOWN);
+	rtl8xxxu_write32(priv, REG_APS_FSMCO, val32);
 
 	/* 0x48[16] = 0 to disable GPIO9 as EXT WAKEUP*/
 	val8 = rtl8xxxu_read8(priv, REG_GPIO_INTM + 2);
@@ -3667,9 +3679,9 @@ void rtl8xxxu_disabled_to_emu(struct rtl8xxxu_priv *priv)
 	rtl8xxxu_write8(priv, REG_GPIO_INTM + 2, val8);
 
 	/* 0x04[12:11] = 11 enable WL suspend*/
-	val8 = rtl8xxxu_read8(priv, REG_APS_FSMCO + 1);
-	val8 &= ~(BIT(3) | BIT(4));
-	rtl8xxxu_write8(priv, REG_APS_FSMCO + 1, val8);
+	val32 = rtl8xxxu_read32(priv, REG_APS_FSMCO);
+	val32 &= ~(APS_FSMCO_HW_SUSPEND | APS_FSMCO_PCIE);
+	rtl8xxxu_write32(priv, REG_APS_FSMCO, val32);
 }
 
 static int rtl8xxxu_emu_to_disabled(struct rtl8xxxu_priv *priv)
@@ -3913,6 +3925,7 @@ static int rtl8xxxu_init_device(struct ieee80211_hw *hw)
 
 	if (!macpower)
 		rtl8xxxu_init_queue_reserved_page(priv);
+		dev_dbg(dev, "%s: init_queue_reserved_page\n", __func__);
 
 	ret = rtl8xxxu_init_queue_priority(priv);
 	dev_dbg(dev, "%s: init_queue_priority %i\n", __func__, ret);
@@ -3924,7 +3937,7 @@ static int rtl8xxxu_init_device(struct ieee80211_hw *hw)
 	 */
 	rtl8xxxu_write16(priv, REG_TRXFF_BNDY + 2, fops->trxff_boundary);
 
-	ret = rtl8xxxu_download_firmware(priv);
+	ret = fops->download_firmware(priv);
 	dev_dbg(dev, "%s: download_firmware %i\n", __func__, ret);
 	if (ret)
 		goto exit;
@@ -4904,9 +4917,9 @@ rtl8xxxu_fill_txdesc_v2(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 	}
 }
 
-static void rtl8xxxu_tx(struct ieee80211_hw *hw,
-			struct ieee80211_tx_control *control,
-			struct sk_buff *skb)
+void rtl8xxxu_tx(struct ieee80211_hw *hw,
+		 struct ieee80211_tx_control *control,
+		 struct sk_buff *skb)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
@@ -5015,17 +5028,24 @@ static void rtl8xxxu_tx(struct ieee80211_hw *hw,
 
 	seq_number = IEEE80211_SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl));
 
+	dev_info(&priv->udev->dev, "calling fill_txdesc\n");
 	priv->fops->fill_txdesc(hw, hdr, tx_info, tx_desc, sgi, short_preamble,
 				ampdu_enable, rts_rate);
 
+	dev_info(&priv->udev->dev, "rtl8xxxu_calc_tx_desc_csum\n");
 	rtl8xxxu_calc_tx_desc_csum(tx_desc);
 
+	dev_info(&priv->udev->dev, "usb_fill_bulk_urb\n");
 	usb_fill_bulk_urb(&tx_urb->urb, priv->udev, priv->pipe_out[queue],
 			  skb->data, skb->len, rtl8xxxu_tx_complete, skb);
 
+	dev_info(&priv->udev->dev, "usb_anchor_urb\n");
 	usb_anchor_urb(&tx_urb->urb, &priv->tx_anchor);
+
+	dev_info(&priv->udev->dev, "usb_submit_urb\n");
 	ret = usb_submit_urb(&tx_urb->urb, GFP_ATOMIC);
 	if (ret) {
+		dev_info(&priv->udev->dev, "usb_submit_urb ret=%d\n", ret);
 		usb_unanchor_urb(&tx_urb->urb);
 		rtl8xxxu_free_tx_urb(priv, tx_urb);
 		goto error;
@@ -5787,10 +5807,6 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
 
 	ret = 0;
 
-	init_usb_anchor(&priv->rx_anchor);
-	init_usb_anchor(&priv->tx_anchor);
-	init_usb_anchor(&priv->int_anchor);
-
 	priv->fops->enable_rf(priv);
 	if (priv->usb_interrupts) {
 		ret = rtl8xxxu_submit_int_urb(hw);
@@ -6057,6 +6073,10 @@ static int rtl8xxxu_probe(struct usb_interface *interface,
 	spin_lock_init(&priv->rx_urb_lock);
 	INIT_WORK(&priv->rx_urb_wq, rtl8xxxu_rx_urb_work);
 
+	init_usb_anchor(&priv->rx_anchor);
+	init_usb_anchor(&priv->tx_anchor);
+	init_usb_anchor(&priv->int_anchor);
+
 	usb_set_intfdata(interface, hw);
 
 	ret = rtl8xxxu_parse_usb(priv, interface);
@@ -6088,10 +6108,6 @@ static int rtl8xxxu_probe(struct usb_interface *interface,
 		dev_err(&udev->dev, "Fatal - failed to load firmware\n");
 		goto exit;
 	}
-
-	ret = rtl8xxxu_init_device(hw);
-	if (ret)
-		goto exit;
 
 	hw->wiphy->max_scan_ssids = 1;
 	hw->wiphy->max_scan_ie_len = IEEE80211_MAX_DATA_LEN;
@@ -6143,6 +6159,10 @@ static int rtl8xxxu_probe(struct usb_interface *interface,
 			__func__, ret);
 		goto exit;
 	}
+
+	ret = rtl8xxxu_init_device(hw);
+	if (ret)
+		goto exit;
 
 	return 0;
 
@@ -6363,6 +6383,9 @@ static const struct usb_device_id dev_table[] = {
 	.driver_info = (unsigned long)&rtl8192eu_fops},
 {USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_REALTEK, 0x818c, 0xff, 0xff, 0xff),
 	.driver_info = (unsigned long)&rtl8192eu_fops},
+/* experimental RTL8814AU driver */
+{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_REALTEK, 0x8813, 0xff, 0xff, 0xff),
+	.driver_info = (unsigned long)&rtl8814au_fops},
 #endif
 { }
 };
