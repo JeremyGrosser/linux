@@ -109,32 +109,29 @@ static int rtl8814au_parse_efuse(struct rtl8xxxu_priv *priv)
 
 	priv->has_xtalk = 1;
 	priv->xtalk = priv->efuse_wifi.efuse8814.xtal_k & 0x3f;
-
-	dev_info(&priv->udev->dev, "Vendor: %.7s\n", efuse->vendor_name);
-	dev_info(&priv->udev->dev, "Product: %.11s\n", efuse->device_name);
-	dev_info(&priv->udev->dev, "Serial: %.11s\n", efuse->serial);
 	return 0;
 }
 
 static int rtl8814au_send_firmware_page(struct rtl8xxxu_priv *priv,
-					u8 *dmem_ptr, size_t dmem_page_size)
+					u8 *ptr, size_t page_size)
 {
 	struct ieee80211_tx_control control = {};
 	struct ieee80211_tx_info *tx_info;
 	struct sk_buff *skb;
 	struct rtl8xxxu_tx_urb *tx_urb;
 	u8 *data;
-	int ret = 0;
+	u16 val16;
+	int count, ret = 0;
 
 	skb = netdev_alloc_skb(NULL,
-			       (rtl8814au_fops.tx_desc_size + dmem_page_size));
+			       (rtl8814au_fops.tx_desc_size + page_size));
 	if(!skb) {
 		ret = -ENOMEM;
 		goto exit;
 	}
 	skb_reserve(skb, rtl8814au_fops.tx_desc_size);
-	data = skb_put(skb, dmem_page_size);
-	memcpy(data, dmem_ptr, dmem_page_size);
+	data = skb_put(skb, page_size);
+	memcpy(data, ptr, page_size);
 
 	/*
 	 * Temporarily allocate a tx urb for sending the firmware beacons
@@ -154,10 +151,55 @@ static int rtl8814au_send_firmware_page(struct rtl8xxxu_priv *priv,
 	tx_info = IEEE80211_SKB_CB(skb);
 	tx_info->control.flags = 0;
 
+	// Clear the beacon valid bit
+	val16 = rtl8xxxu_read16(priv, REG_FIFOPAGE);
+	val16 &= ~FIFOPAGE_BEACON_VALID;
+	rtl8xxxu_write16(priv, REG_FIFOPAGE, val16);
+
+	// Send the frame
 	rtl8xxxu_tx(priv->hw, &control, skb);
 
+	// Poll for beacon valid flag
+	for (count = RTL8XXXU_MAX_REG_POLL; count; count--) {
+		val16 = rtl8xxxu_read16(priv, REG_FIFOPAGE);
+		if (val16 & FIFOPAGE_BEACON_VALID)
+			break;
+
+		udelay(10);
+	}
+
+	if(!count) {
+		dev_err(&priv->udev->dev, "Failed to send firmware page");
+		ret = -EBUSY;
+		goto exit;
+	}
+
+	// TODO: Initiate a DMA transfer from the TX FIFO to the MCU
+	// See IDDMADownLoadFW_3081
 exit:
 	//consume_skb(skb);
+	return ret;
+}
+
+static int rtl8814au_send_firmware(struct rtl8xxxu_priv *priv, u8 *fw_bin,
+				    size_t len) {
+	size_t page_size = RTL8814A_TX_EXTBUF_SIZE - RTL8814A_TXDESC_SIZE;
+	int ret = 0;
+
+	while(len > 0) {
+		len -= page_size;
+		if(page_size > len) {
+			// This is the last page
+			ret = rtl8814au_send_firmware_page(priv, fw_bin, len);
+			break;
+		}else{
+			// This is not the last page
+			ret = rtl8814au_send_firmware_page(priv, fw_bin, len);
+			if(ret)
+				break;
+		}
+	}
+
 	return ret;
 }
 
@@ -269,7 +311,7 @@ static int rtl8814au_emu_to_active(struct rtl8xxxu_priv *priv)
 	}
 
 	if(!count) {
-		dev_info(&priv->udev->dev, "Hit MAX_REG_POLL waiting for APS_FSMCO_PFM_LDALL: REG_APS_FSMCO=0x%08x\n", val32);
+		dev_err(&priv->udev->dev, "Hit MAX_REG_POLL waiting for APS_FSMCO_PFM_LDALL: REG_APS_FSMCO=0x%08x\n", val32);
 		ret = -EBUSY;
 		goto exit;
 	}
@@ -379,8 +421,8 @@ static int rtl8814au_download_firmware(struct rtl8xxxu_priv *priv)
 	int count, ret = 0;
 
 	struct rtl8814au_firmware_header *fw_data;
-	size_t dmem_offset, dmem_page_size;
 	u8 *dmem_ptr;
+	u8 *iram_ptr;
 
 	fw_data = (struct rtl8814au_firmware_header *)priv->fw_data;
 
@@ -429,41 +471,25 @@ static int rtl8814au_download_firmware(struct rtl8xxxu_priv *priv)
 	/* Set the head page of bcnq packet */
 	rtl8xxxu_write16(priv, REG_FIFOPAGE, TX_TOTAL_PAGE_NUM_8814A);
 
-	/*
-	 * Clear beacon valid check bit
-	 *
-	 * Maybe unnecessary because we just set it as part of
-	 * TX_TOTAL_PAGE_NUM?
-	 */
-	val16 = rtl8xxxu_read16(priv, REG_FIFOPAGE);
-	val16 &= ~FIFOPAGE_BEACON_VALID;
-	rtl8xxxu_write16(priv, REG_FIFOPAGE, val16);
-
-	/*
-	 * TODO: send the firmware as beacon packets. This is gonna get weird.
-	 */
-	dmem_offset = fw_data->total_dmem_size + RTL8814A_FIRMWARE_CHKSUM_SIZE;
-	dmem_page_size = RTL8814A_TX_EXTBUF_SIZE - RTL8814A_TXDESC_SIZE;
-
-	while(dmem_offset > 0) {
-		dev_dbg(&priv->udev->dev, "dmem_page_size=%zu dmem_offset=%zu\n",
-			dmem_page_size, dmem_offset);
-		dmem_offset -= dmem_page_size;
-		dmem_ptr = (fw_data->data + dmem_offset);
-		if(dmem_page_size > dmem_offset) {
-			// This is the last page
-			rtl8814au_send_firmware_page(priv, dmem_ptr,
-						     dmem_offset);
-			break;
-		}else{
-			// This is not the last page
-			rtl8814au_send_firmware_page(priv, dmem_ptr,
-						     dmem_page_size);
-		}
+	dmem_ptr = fw_data->data +
+		   (fw_data->total_dmem_size + RTL8814A_FIRMWARE_CHKSUM_SIZE);
+	ret = rtl8814au_send_firmware(priv, dmem_ptr, fw_data->total_dmem_size);
+	if(ret) {
+		dev_err(&priv->udev->dev, "Error loading MCU dmem image\n");
+		goto exit;
 	}
+	dev_info(&priv->udev->dev, "Loaded MCU dmem image\n");
 
-	dev_info(&priv->udev->dev, "3081 finished sending dmem image\n");
-
+	if(fw_data->mem_usage_iram_3081) {
+		iram_ptr = fw_data->data +
+			   (fw_data->iram_size + RTL8814A_FIRMWARE_CHKSUM_SIZE);
+		rtl8814au_send_firmware(priv, iram_ptr, fw_data->iram_size);
+		if(ret) {
+			dev_err(&priv->udev->dev, "Error loading MCU iram image\n");
+			goto exit;
+		}
+		dev_info(&priv->udev->dev, "Loaded MCU iram image\n");
+	}
 
 	/* 3081 Enable */
 	val16 = rtl8xxxu_read16(priv, REG_SYS_FUNC);
@@ -477,21 +503,22 @@ static int rtl8814au_download_firmware(struct rtl8xxxu_priv *priv)
 
 	for (count = RTL8XXXU_MAX_REG_POLL; count; count--) {
 		val32 = rtl8xxxu_read32(priv, REG_MCU_FW_DL);
-		if ((val32 & MCU_CPU_DL_READY))
+		if ((val32 & MCU_CPU_DL_READY)) {
+			dev_info(&priv->udev->dev, "MCU_CPU_DL_READY!\n");
 			break;
+		}
 
 		udelay(10);
 	}
 
 	if(!count) {
-		dev_info(&priv->udev->dev, "3081 firmware did not start\n");
+		dev_err(&priv->udev->dev, "3081 firmware did not start\n");
 		ret = -EBUSY;
 		goto exit;
 	}
 
 exit:
 	return ret;
-
 }
 
 struct rtl8xxxu_fileops rtl8814au_fops = {

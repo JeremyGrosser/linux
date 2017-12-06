@@ -5028,24 +5028,18 @@ void rtl8xxxu_tx(struct ieee80211_hw *hw,
 
 	seq_number = IEEE80211_SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl));
 
-	dev_info(&priv->udev->dev, "calling fill_txdesc\n");
 	priv->fops->fill_txdesc(hw, hdr, tx_info, tx_desc, sgi, short_preamble,
 				ampdu_enable, rts_rate);
 
-	dev_info(&priv->udev->dev, "rtl8xxxu_calc_tx_desc_csum\n");
 	rtl8xxxu_calc_tx_desc_csum(tx_desc);
 
-	dev_info(&priv->udev->dev, "usb_fill_bulk_urb\n");
 	usb_fill_bulk_urb(&tx_urb->urb, priv->udev, priv->pipe_out[queue],
 			  skb->data, skb->len, rtl8xxxu_tx_complete, skb);
 
-	dev_info(&priv->udev->dev, "usb_anchor_urb\n");
 	usb_anchor_urb(&tx_urb->urb, &priv->tx_anchor);
 
-	dev_info(&priv->udev->dev, "usb_submit_urb\n");
 	ret = usb_submit_urb(&tx_urb->urb, GFP_ATOMIC);
 	if (ret) {
-		dev_info(&priv->udev->dev, "usb_submit_urb ret=%d\n", ret);
 		usb_unanchor_urb(&tx_urb->urb);
 		rtl8xxxu_free_tx_urb(priv, tx_urb);
 		goto error;
@@ -6153,16 +6147,16 @@ static int rtl8xxxu_probe(struct usb_interface *interface,
 
 	wiphy_ext_feature_set(hw->wiphy, NL80211_EXT_FEATURE_CQM_RSSI_LIST);
 
+	ret = rtl8xxxu_init_device(hw);
+	if (ret)
+		goto exit;
+
 	ret = ieee80211_register_hw(priv->hw);
 	if (ret) {
 		dev_err(&udev->dev, "%s: Failed to register: %i\n",
 			__func__, ret);
 		goto exit;
 	}
-
-	ret = rtl8xxxu_init_device(hw);
-	if (ret)
-		goto exit;
 
 	return 0;
 
