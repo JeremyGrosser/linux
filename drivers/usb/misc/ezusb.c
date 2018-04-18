@@ -139,7 +139,6 @@ int ezusb_fx1_ihex_firmware_download(struct usb_device *dev,
 }
 EXPORT_SYMBOL_GPL(ezusb_fx1_ihex_firmware_download);
 
-#if 0
 /*
  * Once someone one needs these fx2 functions, uncomment them
  * and add them to ezusb.h and all should be good.
@@ -161,6 +160,5 @@ int ezusb_fx2_ihex_firmware_download(struct usb_device *dev,
 	return ezusb_ihex_firmware_download(dev, ezusb_fx2, firmware_path);
 }
 EXPORT_SYMBOL_GPL(ezusb_fx2_ihex_firmware_download);
-#endif
 
 MODULE_LICENSE("GPL");
