@@ -59,6 +59,8 @@ static unsigned long __init get_board_mach_type(const void *fdt)
 		return MACH_INGENIC_JZ4780;
 	if (!fdt_node_check_compatible(fdt, 0, "ingenic,jz4770"))
 		return MACH_INGENIC_JZ4770;
+	if (!fdt_node_check_compatible(fdt, 0, "ingenic,jz4760"))
+		return MACH_INGENIC_JZ4760;
 
 	return MACH_INGENIC_JZ4740;
 }
@@ -92,6 +94,8 @@ const char *get_system_type(void)
 		return "JZ4780";
 	case MACH_INGENIC_JZ4770:
 		return "JZ4770";
+	case MACH_INGENIC_JZ4760:
+		return "JZ4760";
 	default:
 		return "JZ4740";
 	}

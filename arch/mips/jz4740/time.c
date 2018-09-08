@@ -110,7 +110,7 @@ static struct clock_event_device jz4740_clockevent = {
 	.set_state_oneshot = jz4740_clockevent_shutdown,
 	.tick_resume = jz4740_clockevent_resume,
 	.rating = 200,
-#ifdef CONFIG_MACH_JZ4740
+#if defined(CONFIG_MACH_JZ4740) || defined(CONFIG_MACH_JZ4760)
 	.irq = JZ4740_IRQ_TCU0,
 #endif
 #if defined(CONFIG_MACH_JZ4770) || defined(CONFIG_MACH_JZ4780)

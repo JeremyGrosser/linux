@@ -8,6 +8,10 @@ config JZ4740_QI_LB60
 	bool "Qi Hardware Ben NanoNote"
 	select MACH_JZ4740
 
+config JZ4760_RS97
+	bool "RS-97"
+	select MACH_JZ4760
+
 config JZ4770_GCW0
 	bool "Game Consoles Worldwide GCW Zero"
 	select MACH_JZ4770
@@ -19,6 +23,10 @@ config JZ4780_CI20
 endchoice
 
 config MACH_JZ4740
+	bool
+	select SYS_HAS_CPU_MIPS32_R1
+
+config MACH_JZ4760
 	bool
 	select SYS_HAS_CPU_MIPS32_R1
 
