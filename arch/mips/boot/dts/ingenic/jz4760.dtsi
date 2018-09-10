@@ -309,7 +309,7 @@
 		compatible = "ingenic,jz4780-bch";
 		reg = <0x134d0000 0x10000>;
 
-		clocks = <&cgu JZ4780_CLK_BCH>;
+		clocks = <&cgu JZ4760_CLK_BCH>;
 
 		status = "disabled";
 	};
