@@ -242,7 +242,7 @@
 		interrupt-parent = <&intc>;
 		interrupts = <22>;
 
-		clocks = <&cgu JZ4760_CLK_PDMA>;
+		clocks = <&cgu JZ4760_CLK_DMA>;
 	};
 
 	mmc0: mmc@10021000 {
