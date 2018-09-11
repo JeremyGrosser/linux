@@ -26,7 +26,7 @@
 
 		otg_phy: otg-phy {
 			compatible = "usb-nop-xceiv";
-			clocks = <&cgu JZ4770_CLK_OTG_PHY>;
+			clocks = <&cgu JZ4760_CLK_OTG>;
 			clock-names = "pll1";
 		};
 	};
@@ -47,11 +47,11 @@
 	 * 27 MHz (required by TV encoder) and 48 MHz (required by USB host).
 	 */
 	assigned-clocks =
-		<&cgu JZ4770_CLK_PLL1>,
-		<&cgu JZ4770_CLK_UHC>;
+		<&cgu JZ4760_CLK_PLL1>,
+		<&cgu JZ4760_CLK_UHC>;
 	assigned-clock-parents =
 		<0>,
-		<&cgu JZ4770_CLK_PLL1>;
+		<&cgu JZ4760_CLK_PLL1>;
 	assigned-clock-rates =
 		<432000000>;
 };
