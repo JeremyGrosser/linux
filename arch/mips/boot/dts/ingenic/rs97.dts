@@ -57,6 +57,6 @@
 };
 
 &uhc {
-	/* The WiFi module is connected to the UHC. */
-	status = "okay";
+	/* We might want a USB host someday */
+	status = "disabled";
 };
