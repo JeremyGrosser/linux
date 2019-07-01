@@ -4178,6 +4178,55 @@ brcmf_sdio_prepare_fw_request(struct brcmf_sdio *bus)
 	return fwreq;
 }
 
+static char brcmf_fw_name[BRCMF_FW_NAME_LEN];
+
+#ifdef CONFIG_PROC_FS
+#include <linux/proc_fs.h>
+
+static int brcmf_sdio_proc_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "brcmf_sdio\n");
+	return 0;
+}
+
+static int brcmf_sdio_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, brcmf_sdio_proc_show, NULL);
+}
+
+static ssize_t brcmf_sdio_proc_read(struct file * file, char __user * buf, size_t size, loff_t * loff)
+{
+	int len;
+	len = strlen(brcmf_fw_name);
+	return simple_read_from_buffer(buf, size, loff, brcmf_fw_name, len);
+}
+
+static ssize_t brcmf_sdio_proc_write(struct file * file, const char __user * buf, size_t size, loff_t * loff)
+{
+	return size;
+}
+
+static const struct file_operations brcmf_sdio_proc_fops = {
+	.open		= brcmf_sdio_proc_open,
+	.read		= brcmf_sdio_proc_read,
+	.write		= brcmf_sdio_proc_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int __init brcmf_sdio_proc_init(void)
+{
+	struct proc_dir_entry *r;
+
+	r = proc_create("driver/brcmf_fw", S_IRWXUGO, NULL, &brcmf_sdio_proc_fops);
+	if (!r)
+		return -ENOMEM;
+	return 0;
+}
+#else
+static inline int brcmf_sdio_proc_init(void) { return 0; }
+#endif /* CONFIG_PROC_FS */
+
 struct brcmf_sdio *brcmf_sdio_probe(struct brcmf_sdio_dev *sdiodev)
 {
 	int ret;
@@ -4186,6 +4235,7 @@ struct brcmf_sdio *brcmf_sdio_probe(struct brcmf_sdio_dev *sdiodev)
 	struct brcmf_fw_request *fwreq;
 
 	brcmf_dbg(TRACE, "Enter\n");
+	msleep(1000);
 
 	/* Allocate private bus interface state */
 	bus = kzalloc(sizeof(struct brcmf_sdio), GFP_ATOMIC);
@@ -4279,6 +4329,9 @@ struct brcmf_sdio *brcmf_sdio_probe(struct brcmf_sdio_dev *sdiodev)
 		kfree(fwreq);
 		goto fail;
 	}
+
+	sprintf(brcmf_fw_name, "%s\n", sdiodev->fw_name);
+	brcmf_sdio_proc_init();
 
 	return bus;
 

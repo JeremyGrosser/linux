@@ -269,6 +269,30 @@ static bool sun4i_i2s_oversample_is_valid(unsigned int oversample)
 	return false;
 }
 
+static int sun4i_i2s_get_clk_div(struct sun4i_i2s *i2s,
+				  unsigned int word_size,
+				  unsigned int clk_rate,
+				  unsigned int sampling_rate,
+				  unsigned int * mclk_div,
+				  unsigned int * bclk_div)
+{
+	int div = clk_rate / sampling_rate / word_size / 2;
+	int i, j;
+
+	for (i = 0; i < ARRAY_SIZE(sun4i_i2s_mclk_div); i++) {
+		const struct sun4i_i2s_clk_div *mdiv = &sun4i_i2s_mclk_div[i];
+		for (j = 0; j < ARRAY_SIZE(sun4i_i2s_bclk_div); j++) {
+			const struct sun4i_i2s_clk_div *bdiv = &sun4i_i2s_bclk_div[j];
+			if (mdiv->div * bdiv->div == div) {
+				*mclk_div = mdiv->val;
+				*bclk_div = bdiv->val;
+				return 0;
+			}
+		}
+	}
+
+	return -EINVAL;
+}
 static int sun4i_i2s_set_clk_rate(struct snd_soc_dai *dai,
 				  unsigned int rate,
 				  unsigned int word_size)
@@ -309,26 +333,9 @@ static int sun4i_i2s_set_clk_rate(struct snd_soc_dai *dai,
 	if (ret)
 		return ret;
 
-	oversample_rate = i2s->mclk_freq / rate;
-	if (!sun4i_i2s_oversample_is_valid(oversample_rate)) {
-		dev_err(dai->dev, "Unsupported oversample rate: %d\n",
-			oversample_rate);
-		return -EINVAL;
-	}
-
-	bclk_div = sun4i_i2s_get_bclk_div(i2s, oversample_rate,
-					  word_size);
-	if (bclk_div < 0) {
-		dev_err(dai->dev, "Unsupported BCLK divider: %d\n", bclk_div);
-		return -EINVAL;
-	}
-
-	mclk_div = sun4i_i2s_get_mclk_div(i2s, oversample_rate,
-					  clk_rate, rate);
-	if (mclk_div < 0) {
-		dev_err(dai->dev, "Unsupported MCLK divider: %d\n", mclk_div);
-		return -EINVAL;
-	}
+	ret = sun4i_i2s_get_clk_div(i2s, word_size, clk_rate, rate, &mclk_div, &bclk_div);
+	if (ret)
+		return ret;
 
 	/* Adjust the clock division values if needed */
 	bclk_div += i2s->variant->bclk_offset;
@@ -787,6 +794,7 @@ static const struct reg_default sun8i_i2s_reg_defaults[] = {
 };
 
 static const struct regmap_config sun4i_i2s_regmap_config = {
+	.name	= "sun4i_i2s",
 	.reg_bits	= 32,
 	.reg_stride	= 4,
 	.val_bits	= 32,

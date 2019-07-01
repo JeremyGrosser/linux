@@ -36,7 +36,7 @@ static struct drm_driver sun4i_drv_driver = {
 	/* Generic Operations */
 	.lastclose		= drm_fb_helper_lastclose,
 	.fops			= &sun4i_drv_fops,
-	.name			= "sun4i-drm",
+	.name			= "sun4i_drm",
 	.desc			= "Allwinner sun4i Display Engine",
 	.date			= "20150629",
 	.major			= 1,
