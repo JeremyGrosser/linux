@@ -1106,6 +1106,8 @@ dtb-$(CONFIG_MACH_SUN8I) += \
 	sun8i-h3-orangepi-zero-plus2.dtb \
 	sun8i-h3-rervision-dvk.dtb \
 	sun8i-r16-bananapi-m2m.dtb \
+	sun8i-r16-clockworkpi-cpi3.dtb \
+	sun8i-r16-clockworkpi-cpi3-hdmi.dtb \
 	sun8i-r16-nintendo-nes-classic.dtb \
 	sun8i-r16-nintendo-super-nes-classic.dtb \
 	sun8i-r16-parrot.dtb \
